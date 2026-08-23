@@ -45,7 +45,40 @@ wait_for_health() {
     return 1
 }
 
+compose_build() {
+    local target_release="$1"
+    local target_sha="$2"
+
+    cd "$target_release"
+    APP_IMAGE_TAG="$target_sha" \
+        docker compose --project-name "$compose_project" build backend
+}
+
+compose_migrate() {
+    local target_release="$1"
+    local target_port="$2"
+    local target_sha="$3"
+
+    cd "$target_release"
+    APP_PORT="$target_port" APP_IMAGE_TAG="$target_sha" \
+        docker compose --project-name "$compose_project" \
+        run --rm --no-deps backend migrate up \
+        -config "/app/configs/config.${environment_name}.yaml" \
+        -path /app/migrations
+}
+
 compose_up() {
+    local target_release="$1"
+    local target_port="$2"
+    local target_sha="$3"
+
+    cd "$target_release"
+    APP_PORT="$target_port" APP_IMAGE_TAG="$target_sha" \
+        docker compose --project-name "$compose_project" \
+        up --detach --no-build --remove-orphans
+}
+
+compose_restore() {
     local target_release="$1"
     local target_port="$2"
     local target_sha="$3"
@@ -66,7 +99,7 @@ rollback_previous() {
         previous_port="$(<"${previous_release}/${deploy_port_file}")"
         previous_sha="${previous_release##*/}"
         [[ "$previous_port" =~ ^[0-9]{2,5}$ ]] || fail "上一个版本的应用端口无效"
-        compose_up "$previous_release" "$previous_port" "$previous_sha"
+        compose_restore "$previous_release" "$previous_port" "$previous_sha"
         wait_for_health "$previous_port" || fail "已经恢复上一个版本但健康检查仍未通过"
         printf '部署：已成功恢复上一个版本\n' >&2
         return 0
@@ -124,13 +157,29 @@ if [[ ! -d "$release_dir" ]]; then
     temporary_release_dir=""
 fi
 
+[[ -d "${release_dir}/migrations" ]] || fail "部署包中缺少 migrations 目录"
+compgen -G "${release_dir}/migrations/*.up.sql" >/dev/null \
+    || fail "部署包中缺少升级迁移文件"
+compgen -G "${release_dir}/migrations/*.down.sql" >/dev/null \
+    || fail "部署包中缺少回滚迁移文件"
+
 printf '%s\n' "$app_port" >"${release_dir}/${deploy_port_file}"
 cd "$release_dir"
 printf '部署：正在校验 Docker Compose 配置\n'
 APP_PORT="$app_port" APP_IMAGE_TAG="$release_sha" \
     docker compose --project-name "$compose_project" config --quiet
 
-printf '部署：正在构建镜像并启动容器\n'
+printf '部署：正在构建新版本镜像\n'
+if ! compose_build "$release_dir" "$release_sha"; then
+    fail "Docker 镜像构建失败 旧版本继续运行"
+fi
+
+printf '部署：正在执行数据库升级\n'
+if ! compose_migrate "$release_dir" "$app_port" "$release_sha"; then
+    fail "数据库升级失败 旧版本继续运行"
+fi
+
+printf '部署：数据库升级成功 正在启动新版本容器\n'
 if ! compose_up "$release_dir" "$app_port" "$release_sha"; then
     docker compose --project-name "$compose_project" logs --no-color --tail 200 backend || true
     rollback_previous

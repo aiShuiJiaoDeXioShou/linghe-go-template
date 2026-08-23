@@ -6,6 +6,7 @@ WORKDIR /app
 
 COPY server /app/server
 COPY configs /app/configs
+COPY migrations /app/migrations
 
 USER 65532:65532
 EXPOSE 3000

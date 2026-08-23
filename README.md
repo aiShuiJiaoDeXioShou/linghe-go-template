@@ -2,6 +2,24 @@
 
 一个面向中小型服务的 Go 单体模板，业务代码按领域模块内聚，默认接入 Fiber v3、GORM、PostgreSQL、Redis 和 SCS 服务端会话
 
+## 目录
+
+- [架构](#架构)
+- [技术栈](#技术栈)
+- [目录结构](#目录结构)
+- [手动依赖注入](#手动依赖注入)
+- [路由](#路由)
+- [双登录域认证](#双登录域认证)
+- [权限校验](#权限校验)
+- [参数校验与统一响应](#参数校验与统一响应)
+- [环境配置](#环境配置)
+- [数据库迁移](#数据库迁移)
+- [快速启动](#快速启动)
+- [数据访问](#数据访问)
+- [质量检查](#质量检查)
+- [自动部署](#自动部署)
+- [发布前初始化](#发布前初始化)
+
 ## 架构
 
 业务按领域放在 `internal/modules/<domain>`，每个模块内部包含 API、Service 和 Repository：
@@ -43,6 +61,7 @@ Service 和 Repository 构造函数直接返回具体指针。Service 可以声�
 - Go 1.25 或更高版本
 - Fiber v3
 - GORM v2 和 PostgreSQL 驱动
+- golang-migrate v4 和 PGX v5 迁移驱动
 - go-redis
 - SCS v2 和 goredisstore
 - go-playground/validator
@@ -69,14 +88,16 @@ Service 和 Repository 构造函数直接返回具体指针。Service 可以声�
 │   │   ├── user/                   # 业务用户
 │   │   ├── adminuser/              # 管理员用户
 │   │   ├── config/                 # 系统配置
+│   │   ├── health/                 # 存活 就绪和数据库探针
 │   │   └── identity/               # 账号模块共享的最小认证契约
 │   ├── models/                     # GORM 数据库模型
 │   ├── config/                     # YAML 配置加载与校验
 │   ├── data/                       # PostgreSQL Redis 和事务
-│   ├── health/                     # 存活 就绪和数据库探针
+│   ├── migration/                  # golang-migrate 执行能力
 │   ├── httpserver/                 # Fiber 与网络生命周期
 │   └── httpx/                      # 参数校验和统一 HTTP 响应
 ├── migrations/                     # PostgreSQL 版本化迁移
+├── tools/                           # 项目开发命令和初始化器
 ├── docs/                           # 架构说明
 ├── deploy/                         # 远端部署配置和脚本
 ├── tests/                          # 集中存放测试文件
@@ -325,9 +346,46 @@ auth:
 
 配置采用严格解析，未知字段或非法环境名会导致应用启动失败
 
+## 数据库迁移
+
+项目使用 `golang-migrate` 管理版本化 SQL。GORM 负责模型映射、查询和业务事务，不调用 `AutoMigrate`。迁移器不会创建 PostgreSQL 服务、逻辑数据库、用户或权限，目标数据库必须先存在。
+
+创建下一组迁移文件：
+
+```bash
+go tool migrate create -ext sql -dir migrations -seq add_order_status
+```
+
+官方 CLI 根据现有最大版本生成成对文件，不会覆盖已有内容：
+
+```text
+migrations/000002_add_order_status.up.sql
+migrations/000002_add_order_status.down.sql
+```
+
+`golang-migrate` 官方 CLI 通过 `go.mod` 的 `tool` 指令固定版本，创建迁移时不需要单独安装系统级命令。数据库执行入口使用同版本的官方库和 PGX v5 驱动。
+
+编译后的服务和 `go run .` 使用同一组迁移子命令：
+
+```bash
+go run . migrate up -config configs/config.local.yaml -path migrations
+go run . migrate version -config configs/config.local.yaml -path migrations
+go run . migrate down -steps 1 -config configs/config.local.yaml -path migrations
+```
+
+以上命令要求配置中的 PostgreSQL 地址能从当前机器访问。默认本地配置使用 Compose 服务名，因此直接使用仓库配置时应在 Compose 容器中运行：
+
+```bash
+docker compose run --rm migrate
+docker compose run --rm migrate migrate version -config /app/configs/config.local.yaml -path /app/migrations
+docker compose run --rm migrate migrate down -steps 1 -config /app/configs/config.local.yaml -path /app/migrations
+```
+
+迁移文件使用六位递增版本和 snake_case 名称。已合并或已经在共享环境执行的文件不可修改、重命名或删除，只能新增修复版本。生产变更必须兼容上一个应用版本，应用回滚不会自动回滚数据库。完整规则见 [持久层架构](docs/persistence.md)。
+
 ## 快速启动
 
-使用 Compose 同时启动应用、PostgreSQL 和 Redis：
+使用 Compose 启动 PostgreSQL 和 Redis，执行一次 `migrate up`，成功后再启动应用：
 
 ```powershell
 docker compose up --build
@@ -345,9 +403,10 @@ Invoke-RestMethod http://localhost:3000/api/v1/ping
 - `/readyz` 同时检查 PostgreSQL 和 Redis
 - `/api/v1/ping` 执行 PostgreSQL 轻量查询并返回数据库连接状态
 
-直接运行 Go 进程时，需要确保配置中的服务地址可以从当前网络访问：
+直接运行 Go 进程时，需要先执行迁移，并确保配置中的 PostgreSQL 和 Redis 地址可以从当前网络访问：
 
 ```powershell
+go run . migrate up -config configs/config.local.yaml -path migrations
 go run . -config configs/config.local.yaml
 ```
 
@@ -384,9 +443,11 @@ go build ./...
 
 ```powershell
 docker compose up -d postgresql redis
-$env:TEST_POSTGRES_URL = "postgres://go_template:go_template_test@127.0.0.1:5432/go_template_test?sslmode=disable"
+docker compose exec postgresql dropdb --if-exists -U go_template go_template_test
+docker compose exec postgresql createdb -U go_template go_template_test
+$env:TEST_POSTGRES_URL = "postgres://go_template:go_template_local@127.0.0.1:5432/go_template_test?sslmode=disable"
 $env:TEST_REDIS_ADDRESS = "127.0.0.1:6379"
-$env:TEST_REDIS_PASSWORD = "go_template_test"
+$env:TEST_REDIS_PASSWORD = "go_template_local"
 go test ./...
 ```
 
@@ -401,7 +462,9 @@ go test ./...
 | `main` | `stg` | `config.stg.yaml` | 预发布环境 |
 | `rel` | `production` | `config.production.yaml` | 生产环境 |
 
-`.github/workflows/deploy.yml` 会先执行普通测试和静态检查，再构建部署包并通过 SSH 发布，部署失败时恢复上一个成功版本
+`.github/workflows/deploy.yml` 会先执行测试和静态检查，再把服务、配置和迁移文件打包并通过 SSH 发布。远端在旧版本继续服务时构建新镜像，用新镜像执行 `migrate up`，迁移成功后才启动新版应用。
+
+迁移失败时发布立即停止，旧应用继续运行。新版健康检查失败时只恢复上一个应用版本，数据库不会自动执行 `down`，因此删除列或收紧约束需要采用分阶段的 expand migrate contract 变更。
 
 GitHub 的 `stg` 和 `production` Environments 需要分别设置以下 Variables：
 

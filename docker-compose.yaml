@@ -1,15 +1,30 @@
 services:
-  backend:
+  migrate:
     build:
       context: .
       dockerfile: Dockerfile
+    image: go-template:local
+    restart: "no"
+    command:
+      - migrate
+      - up
+      - -config
+      - /app/configs/config.local.yaml
+      - -path
+      - /app/migrations
+    depends_on:
+      postgresql:
+        condition: service_healthy
+
+  backend:
+    image: go-template:local
     restart: unless-stopped
     command:
       - -config
       - /app/configs/config.local.yaml
     depends_on:
-      postgresql:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
     ports:

@@ -8,8 +8,8 @@ import (
 
 	"go-template/internal/data"
 	"go-template/internal/models"
+	"go-template/internal/utils"
 
-	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -27,7 +27,7 @@ func NewRepository(resources *data.Data) *Repository {
 func (r *Repository) Create(ctx context.Context, input CreateUser) (User, error) {
 	now := time.Now().UTC()
 	record := models.User{
-		ID:           uuid.NewString(),
+		ID:           utils.NewUUID(),
 		Username:     input.Username,
 		PasswordHash: input.PasswordHash,
 		Nickname:     input.Nickname,

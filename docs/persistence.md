@@ -159,14 +159,64 @@ Repository 必须继续传递收到的上下文，`Data.DB(ctx)` 会自动取得
 - `/readyz` 通过 `Data.Ping` 检查 PostgreSQL 和 Redis
 - `/api/v1/ping` 通过 `Data.PingDatabase` 执行 PostgreSQL 轻量查询
 
-探针路由统一放在 `internal/health/handler.go`。
+探针路由统一放在 `internal/modules/health/api.go`，但不套用业务 Service 和 Repository。
 
-## 安全和迁移约束
+## 数据库迁移
+
+项目使用 `golang-migrate` v4 管理 PostgreSQL 版本，GORM 只负责模型映射、查询和业务事务。HTTP 服务启动不会调用 `AutoMigrate`，迁移必须作为独立命令显式执行。
+
+目标 PostgreSQL 服务和逻辑数据库必须先存在。迁移器负责在目标数据库中创建业务表和 `schema_migrations` 版本表，不负责创建数据库、用户或权限。
+
+创建下一组迁移：
+
+```bash
+go tool migrate create -ext sql -dir migrations -seq add_order_status
+```
+
+官方 CLI 按当前最大版本创建一组不覆盖已有文件的空迁移：
+
+```text
+migrations/000002_add_order_status.up.sql
+migrations/000002_add_order_status.down.sql
+```
+
+升级、查看版本和单步回滚：
+
+```bash
+go run . migrate up -config configs/config.local.yaml -path migrations
+go run . migrate version -config configs/config.local.yaml -path migrations
+go run . migrate down -steps 1 -config configs/config.local.yaml -path migrations
+```
+
+`up` 在已经处于最新版本时视为成功。`version` 输出当前版本和 dirty 状态。`down` 必须明确指定步数，主要用于本地开发和测试。
+
+需要直接使用带 PGX v5 驱动的官方 CLI 时传入 `pgx5://` 数据库 URL：
+
+```bash
+go run -tags pgx5 github.com/golang-migrate/migrate/v4/cmd/migrate -path migrations -database '<pgx5-url>' up
+go run -tags pgx5 github.com/golang-migrate/migrate/v4/cmd/migrate -path migrations -database '<pgx5-url>' version
+go run -tags pgx5 github.com/golang-migrate/migrate/v4/cmd/migrate -path migrations -database '<pgx5-url>' down 1
+```
+
+### 迁移编写规则
+
+- 文件名使用六位递增版本、snake_case 名称和成对的 `up/down.sql`
+- 默认使用 `BEGIN` 和 `COMMIT` 包裹同一版本中的多条 PostgreSQL 语句
+- Up 和 Down 必须准确互逆，Down 同样需要考虑依赖对象的删除顺序
+- `CREATE INDEX CONCURRENTLY` 等不能进入事务的语句单独放入一个迁移，并移除事务包装
+- 模型字段、索引或约束变化必须同时更新 `internal/models` 和所属 Repository
+- 已合并或已在共享环境执行的迁移不可修改、重命名、重排或删除，只能追加修复版本
+- 删除列、收紧约束和不可逆数据转换采用 expand migrate contract 分阶段完成
+- 应用回滚不会自动执行 Down，所以每个生产迁移至少兼容上一个应用版本
+- dirty 状态表示迁移可能只执行了一部分，禁止自动 force，必须先人工核对真实结构
+
+CI 使用真实 PostgreSQL 执行 `up -> down -> up`，覆盖迁移文件解析、版本记录、锁和回滚。部署阶段在旧应用仍运行时先执行 `migrate up`，失败则停止发布；迁移成功后才切换新应用。
+
+## 安全约束
 
 - 禁止 API 和 Service 直接调用 GORM 或 Redis
 - 禁止使用包级全局连接
-- 生产启动时禁止调用 `AutoMigrate`
-- 表结构变更使用 `migrations` 目录中的版本化 SQL
+- 禁止在应用启动时调用 `AutoMigrate`
 - 关联查询显式使用 `Preload` 或 `Joins`
 - 更新时显式声明字段 避免使用 `Save` 覆盖未加载字段
 - 动态排序字段和列名必须来自服务端白名单

@@ -5,9 +5,9 @@ import (
 
 	"go-template/internal/auth"
 	"go-template/internal/data"
-	"go-template/internal/health"
 	adminusermodule "go-template/internal/modules/adminuser"
 	configmodule "go-template/internal/modules/config"
+	healthmodule "go-template/internal/modules/health"
 	usermodule "go-template/internal/modules/user"
 
 	"github.com/gofiber/fiber/v3"
@@ -43,7 +43,7 @@ func registerModules(
 	configmodule.RegisterHandlers(router, configService, realms.Admin)
 
 	// 注册不经过业务分层的系统探针
-	health.RegisterHandlers(
+	healthmodule.RegisterHandlers(
 		router,
 		resources.Ping,
 		resources.PingDatabase,

@@ -8,13 +8,13 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
 	"go-template/internal/config"
 	"go-template/internal/data"
 	"go-template/internal/httpserver"
+	"go-template/internal/migration"
 	adminusermodule "go-template/internal/modules/adminuser"
 	configmodule "go-template/internal/modules/config"
 	usermodule "go-template/internal/modules/user"
@@ -34,6 +34,32 @@ func TestDataResources(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+
+	// 使用正式迁移器验证升级 回滚和再次升级
+	migrationsDirectory := filepath.Join(findRepositoryRoot(t), migration.DefaultDirectory)
+	if err := migration.Up(ctx, databaseURL, migrationsDirectory); err != nil {
+		t.Fatalf("migration.Up() error = %v", err)
+	}
+	if err := migration.Down(ctx, databaseURL, migrationsDirectory, 1); err != nil {
+		t.Fatalf("migration.Down() error = %v", err)
+	}
+	if err := migration.Up(ctx, databaseURL, migrationsDirectory); err != nil {
+		t.Fatalf("second migration.Up() error = %v", err)
+	}
+	state, err := migration.Current(databaseURL, migrationsDirectory)
+	if err != nil {
+		t.Fatalf("migration.Current() error = %v", err)
+	}
+	if !state.Exists || state.Version != 1 || state.Dirty {
+		t.Fatalf("migration state = %+v, want clean version 1", state)
+	}
+	t.Cleanup(func() {
+		cleanupContext, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cleanupCancel()
+		if err := migration.Down(cleanupContext, databaseURL, migrationsDirectory, 1); err != nil {
+			t.Errorf("cleanup migration.Down() error = %v", err)
+		}
+	})
 
 	// 创建真实 PostgreSQL 和 Redis 资源
 	resources, err := data.Open(ctx, config.Config{
@@ -61,12 +87,10 @@ func TestDataResources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("data.Open() error = %v", err)
 	}
-	applyBusinessMigration(t, ctx, resources, "000001_create_core_business_tables.up.sql")
 	t.Cleanup(func() {
 		cleanupContext, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cleanupCancel()
 		_ = resources.DB(cleanupContext).Exec("DROP TABLE IF EXISTS " + persistenceProbeTable).Error
-		applyBusinessMigration(t, cleanupContext, resources, "000001_create_core_business_tables.down.sql")
 		_ = resources.Close()
 	})
 
@@ -217,37 +241,5 @@ func testBusinessRepositories(t *testing.T, ctx context.Context, resources *data
 	}
 	if !savedConfig.Public || !configValue["enabled"] {
 		t.Errorf("saved config = %#v, want public JSON config", savedConfig)
-	}
-}
-
-// applyBusinessMigration 在真实测试数据库执行版本化迁移
-func applyBusinessMigration(
-	t *testing.T,
-	ctx context.Context,
-	resources *data.Data,
-	filename string,
-) {
-	t.Helper()
-	path := filepath.Join(findRepositoryRoot(t), "migrations", filename)
-	content, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read migration %s: %v", filename, err)
-	}
-
-	// 在单个事务中逐条执行迁移语句
-	err = resources.WithinTransaction(ctx, func(transactionContext context.Context) error {
-		for _, statement := range strings.Split(string(content), ";") {
-			statement = strings.TrimSpace(statement)
-			if statement == "" || statement == "BEGIN" || statement == "COMMIT" {
-				continue
-			}
-			if err := resources.DB(transactionContext).Exec(statement).Error; err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-	if err != nil {
-		t.Fatalf("apply migration %s: %v", filename, err)
 	}
 }

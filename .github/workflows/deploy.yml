@@ -77,10 +77,11 @@ jobs:
         run: |
           set -Eeuo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          install -d .deploy/configs
+          install -d .deploy/configs .deploy/migrations
           CGO_ENABLED=0 GOOS=linux GOARCH="${DEPLOY_GOARCH:-amd64}" \
             go build -trimpath -ldflags="-s -w" -o .deploy/server .
           cp configs/*.yaml .deploy/configs/
+          cp migrations/*.sql .deploy/migrations/
           cp deploy/Dockerfile .deploy/Dockerfile
           cp "deploy/docker-compose.${DEPLOY_ENVIRONMENT}.yaml" .deploy/docker-compose.yml
           archive="$GITHUB_WORKSPACE/go-template-${DEPLOY_ENVIRONMENT}-${DEPLOY_SHA}.tar.gz"

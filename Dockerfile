@@ -15,6 +15,7 @@ WORKDIR /app
 COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build /out/server /app/server
 COPY --from=build /src/configs /app/configs
+COPY --from=build /src/migrations /app/migrations
 
 USER 65532:65532
 EXPOSE 3000

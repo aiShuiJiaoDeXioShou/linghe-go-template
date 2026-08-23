@@ -13,8 +13,8 @@ import (
 	"time"
 
 	"go-template/internal/apperror"
-	"go-template/internal/health"
 	"go-template/internal/httpserver"
+	"go-template/internal/modules/health"
 )
 
 // TestHealthRoute 验证健康检查接口
