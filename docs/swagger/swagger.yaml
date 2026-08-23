@@ -1,0 +1,515 @@
+basePath: /
+consumes:
+- application/json
+definitions:
+  adminuser.Status:
+    enum:
+    - enabled
+    - disabled
+    type: string
+    x-enum-varnames:
+    - StatusEnabled
+    - StatusDisabled
+  adminuser.adminUserResponse:
+    properties:
+      created_at:
+        type: string
+      display_name:
+        type: string
+      id:
+        type: string
+      status:
+        $ref: '#/definitions/adminuser.Status'
+      updated_at:
+        type: string
+      username:
+        type: string
+    type: object
+  adminuser.createRequest:
+    properties:
+      display_name:
+        maxLength: 64
+        type: string
+      password:
+        maxLength: 72
+        minLength: 8
+        type: string
+      username:
+        maxLength: 32
+        minLength: 3
+        type: string
+    required:
+    - password
+    - username
+    type: object
+  adminuser.loginRequest:
+    properties:
+      device:
+        maxLength: 64
+        type: string
+      password:
+        maxLength: 72
+        type: string
+      username:
+        maxLength: 32
+        type: string
+    required:
+    - device
+    - password
+    - username
+    type: object
+  apperror.Code:
+    enum:
+    - 0
+    - 40000
+    - 40001
+    - 40100
+    - 40300
+    - 40400
+    - 40500
+    - 40900
+    - 41300
+    - 41500
+    - 42900
+    - 50000
+    - 50300
+    type: integer
+    x-enum-varnames:
+    - CodeSuccess
+    - CodeInvalidArgument
+    - CodeValidationFailed
+    - CodeUnauthorized
+    - CodeForbidden
+    - CodeNotFound
+    - CodeMethodNotAllowed
+    - CodeConflict
+    - CodePayloadTooLarge
+    - CodeUnsupportedMediaType
+    - CodeTooManyRequests
+    - CodeInternal
+    - CodeServiceUnavailable
+  auth.RealmName:
+    enum:
+    - app
+    - admin
+    type: string
+    x-enum-varnames:
+    - RealmApp
+    - RealmAdmin
+  auth.Token:
+    properties:
+      access_token:
+        type: string
+      expires_at:
+        type: string
+      realm:
+        $ref: '#/definitions/auth.RealmName'
+      token_type:
+        type: string
+    type: object
+  config.itemResponse:
+    properties:
+      created_at:
+        type: string
+      description:
+        type: string
+      key:
+        type: string
+      public:
+        type: boolean
+      updated_at:
+        type: string
+      value:
+        type: object
+    type: object
+  config.upsertRequest:
+    properties:
+      description:
+        maxLength: 256
+        type: string
+      public:
+        type: boolean
+      value:
+        type: object
+    required:
+    - value
+    type: object
+  health.healthResponse:
+    properties:
+      status:
+        type: string
+    type: object
+  health.pingResponse:
+    properties:
+      database:
+        type: string
+      message:
+        type: string
+    type: object
+  httpx.Response:
+    properties:
+      code:
+        $ref: '#/definitions/apperror.Code'
+      data: {}
+      message:
+        type: string
+    type: object
+  user.Status:
+    enum:
+    - enabled
+    - disabled
+    type: string
+    x-enum-varnames:
+    - StatusEnabled
+    - StatusDisabled
+  user.loginRequest:
+    properties:
+      device:
+        maxLength: 64
+        type: string
+      password:
+        maxLength: 72
+        type: string
+      username:
+        maxLength: 32
+        type: string
+    required:
+    - device
+    - password
+    - username
+    type: object
+  user.registerRequest:
+    properties:
+      nickname:
+        maxLength: 64
+        type: string
+      password:
+        maxLength: 72
+        minLength: 8
+        type: string
+      username:
+        maxLength: 32
+        minLength: 3
+        type: string
+    required:
+    - password
+    - username
+    type: object
+  user.userResponse:
+    properties:
+      created_at:
+        type: string
+      id:
+        type: string
+      nickname:
+        type: string
+      status:
+        $ref: '#/definitions/user.Status'
+      updated_at:
+        type: string
+      username:
+        type: string
+    type: object
+info:
+  contact: {}
+  description: go-template 提供业务端和管理端 HTTP API
+  title: go-template API
+  version: "1.0"
+paths:
+  /admin/auth/login:
+    post:
+      operationId: loginAdminUser
+      parameters:
+      - description: 登录参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/adminuser.loginRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/auth.Token'
+              type: object
+      summary: 登录管理员用户
+      tags:
+      - 管理员用户
+  /admin/auth/logout:
+    post:
+      operationId: logoutAdminUser
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/httpx.Response'
+      security:
+      - BearerAuth: []
+      summary: 注销管理员会话
+      tags:
+      - 认证会话
+  /admin/configs/{key}:
+    get:
+      operationId: getAdminConfig
+      parameters:
+      - description: 配置键
+        in: path
+        maxLength: 128
+        minLength: 1
+        name: key
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/config.itemResponse'
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取管理端系统配置
+      tags:
+      - 系统配置
+    put:
+      operationId: upsertAdminConfig
+      parameters:
+      - description: 配置键
+        in: path
+        maxLength: 128
+        minLength: 1
+        name: key
+        required: true
+        type: string
+      - description: 系统配置内容
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/config.upsertRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/config.itemResponse'
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 新增或更新系统配置
+      tags:
+      - 系统配置
+  /admin/users:
+    post:
+      operationId: createAdminUser
+      parameters:
+      - description: 管理员用户参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/adminuser.createRequest'
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/adminuser.adminUserResponse'
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 创建管理员用户
+      tags:
+      - 管理员用户
+  /admin/users/me:
+    get:
+      operationId: getCurrentAdminUser
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/adminuser.adminUserResponse'
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取当前管理员用户
+      tags:
+      - 管理员用户
+  /api/auth/login:
+    post:
+      operationId: loginBusinessUser
+      parameters:
+      - description: 登录参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/user.loginRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/auth.Token'
+              type: object
+      summary: 登录业务用户
+      tags:
+      - 业务用户
+  /api/auth/logout:
+    post:
+      operationId: logoutBusinessUser
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/httpx.Response'
+      security:
+      - BearerAuth: []
+      summary: 注销业务用户会话
+      tags:
+      - 认证会话
+  /api/auth/register:
+    post:
+      operationId: registerBusinessUser
+      parameters:
+      - description: 注册参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/user.registerRequest'
+      responses:
+        "201":
+          description: Created
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/user.userResponse'
+              type: object
+      summary: 注册业务用户
+      tags:
+      - 业务用户
+  /api/configs/{key}:
+    get:
+      operationId: getPublicConfig
+      parameters:
+      - description: 配置键
+        in: path
+        maxLength: 128
+        minLength: 1
+        name: key
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/config.itemResponse'
+              type: object
+      summary: 获取公开系统配置
+      tags:
+      - 系统配置
+  /api/users/me:
+    get:
+      operationId: getCurrentBusinessUser
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/user.userResponse'
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取当前业务用户
+      tags:
+      - 业务用户
+  /api/v1/ping:
+    get:
+      operationId: pingDatabase
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/health.pingResponse'
+              type: object
+      summary: 检查业务数据库连接
+      tags:
+      - 系统探针
+  /healthz:
+    get:
+      operationId: getLiveness
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/health.healthResponse'
+              type: object
+      summary: 检查进程存活状态
+      tags:
+      - 系统探针
+  /readyz:
+    get:
+      operationId: getReadiness
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/httpx.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/health.healthResponse'
+              type: object
+      summary: 检查应用就绪状态
+      tags:
+      - 系统探针
+produces:
+- application/json
+schemes:
+- http
+- https
+securityDefinitions:
+  BearerAuth:
+    description: 使用 Bearer 加空格和会话令牌
+    in: header
+    name: Authorization
+    type: apiKey
+swagger: "2.0"

@@ -95,7 +95,8 @@ Service 和 Repository 构造函数直接返回具体指针。Service 可以声�
 │   ├── data/                       # PostgreSQL Redis 和事务
 │   ├── migration/                  # golang-migrate 执行能力
 │   ├── httpserver/                 # Fiber 与网络生命周期
-│   └── httpx/                      # 参数校验和统一 HTTP 响应
+│   ├── httpx/                      # 参数校验和统一 HTTP 响应
+│   └── utils/                      # 无业务语义的项目通用工具
 ├── migrations/                     # PostgreSQL 版本化迁移
 ├── tools/                           # 项目开发命令和初始化器
 ├── docs/                           # 架构说明
@@ -353,17 +354,23 @@ auth:
 创建下一组迁移文件：
 
 ```bash
-go tool migrate create -ext sql -dir migrations -seq add_order_status
+go run ./tools/dev migration new add_order_status
 ```
 
-官方 CLI 根据现有最大版本生成成对文件，不会覆盖已有内容：
+项目工具会先检查已有版本，再生成成对文件且不会覆盖已有内容：
 
 ```text
 migrations/000002_add_order_status.up.sql
 migrations/000002_add_order_status.down.sql
 ```
 
-`golang-migrate` 官方 CLI 通过 `go.mod` 的 `tool` 指令固定版本，创建迁移时不需要单独安装系统级命令。数据库执行入口使用同版本的官方库和 PGX v5 驱动。
+提交前可以单独检查迁移命名、版本唯一性和方向配对：
+
+```bash
+go run ./tools/dev migration check
+```
+
+数据库执行入口使用项目内固定版本的 `golang-migrate` 和 PGX v5 驱动。
 
 编译后的服务和 `go run .` 使用同一组迁移子命令：
 
@@ -434,24 +441,21 @@ GORM 数据库模型统一写在 `internal/models`，CRUD 和自定义查询写�
 ## 质量检查
 
 ```powershell
-go test ./...
-go vet ./...
-go build ./...
+go fmt ./...
+go run ./tools/dev check
 ```
+
+`check` 只执行测试、静态检查与构建。格式、迁移、Compose 和发布结构由各自的专项命令负责。
 
 执行真实 PostgreSQL 和 Redis 集成测试：
 
 ```powershell
-docker compose up -d postgresql redis
-docker compose exec postgresql dropdb --if-exists -U go_template go_template_test
-docker compose exec postgresql createdb -U go_template go_template_test
-$env:TEST_POSTGRES_URL = "postgres://go_template:go_template_local@127.0.0.1:5432/go_template_test?sslmode=disable"
-$env:TEST_REDIS_ADDRESS = "127.0.0.1:6379"
-$env:TEST_REDIS_PASSWORD = "go_template_local"
-go test ./...
+go run ./tools/dev test integration
 ```
 
 所有 `*_test.go` 文件统一放在顶层 `tests` 目录
+
+模块、迁移、项目初始化和发布命令见 [开发命令](docs/development.md)
 
 ## 自动部署
 
@@ -462,7 +466,7 @@ go test ./...
 | `main` | `stg` | `config.stg.yaml` | 预发布环境 |
 | `rel` | `production` | `config.production.yaml` | 生产环境 |
 
-`.github/workflows/deploy.yml` 会先执行测试和静态检查，再把服务、配置和迁移文件打包并通过 SSH 发布。远端在旧版本继续服务时构建新镜像，用新镜像执行 `migrate up`，迁移成功后才启动新版应用。
+`.github/workflows/deploy.yml` 通过 `tools/dev check` 执行统一门禁，再通过 `tools/dev release package` 生成只包含目标环境配置的发布包并通过 SSH 发布。远端在旧版本继续服务时构建新镜像，用新镜像执行 `migrate up`，迁移成功后才启动新版应用。
 
 迁移失败时发布立即停止，旧应用继续运行。新版健康检查失败时只恢复上一个应用版本，数据库不会自动执行 `down`，因此删除列或收紧约束需要采用分阶段的 expand migrate contract 变更。
 
@@ -484,4 +488,17 @@ GitHub 的 `stg` 和 `production` Environments 需要分别设置以下 Variable
 
 ## 发布前初始化
 
-当前模板名称和模块名保留为 `go-template`，初始化真实项目时需要替换仓库内所有 `go-template`，并同步修改数据库名称、账号、密码、镜像名称和部署包名称
+当前模板名称和模块名保留为 `go-template`，初始化真实项目时执行：
+
+```bash
+go run ./tools/dev project init \
+  --module github.com/example/order-service \
+  --name order-service \
+  --dry-run
+
+go run ./tools/dev project init \
+  --module github.com/example/order-service \
+  --name order-service
+```
+
+命令会更新模块导入、应用名、数据库标识、镜像名和部署包名，并执行依赖整理、格式化和完整门禁。项目目录、Git 远端以及各环境真实数据库凭据仍需人工确认。

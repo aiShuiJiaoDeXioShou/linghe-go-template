@@ -43,6 +43,15 @@ type adminUserResponse struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 }
 
+// create 创建管理员用户
+//
+// @Summary 创建管理员用户
+// @Tags 管理员用户
+// @ID createAdminUser
+// @Security BearerAuth
+// @Param request body createRequest true "管理员用户参数"
+// @Success 201 {object} httpx.Response{data=adminUserResponse}
+// @Router /admin/users [post]
 func (r resource) create(c fiber.Ctx) error {
 	var request createRequest
 	// 绑定并校验管理员用户创建参数
@@ -60,6 +69,14 @@ func (r resource) create(c fiber.Ctx) error {
 	return httpx.Created(c, newAdminUserResponse(createdUser))
 }
 
+// login 登录管理员用户
+//
+// @Summary 登录管理员用户
+// @Tags 管理员用户
+// @ID loginAdminUser
+// @Param request body loginRequest true "登录参数"
+// @Success 200 {object} httpx.Response{data=auth.Token}
+// @Router /admin/auth/login [post]
 func (r resource) login(c fiber.Ctx) error {
 	var request loginRequest
 	// 绑定并校验管理员用户登录参数
@@ -77,6 +94,14 @@ func (r resource) login(c fiber.Ctx) error {
 	return httpx.OK(c, token)
 }
 
+// me 获取当前管理员用户
+//
+// @Summary 获取当前管理员用户
+// @Tags 管理员用户
+// @ID getCurrentAdminUser
+// @Security BearerAuth
+// @Success 200 {object} httpx.Response{data=adminUserResponse}
+// @Router /admin/users/me [get]
 func (r resource) me(c fiber.Ctx) error {
 	// 从认证上下文读取服务端可信管理员 ID
 	principal, err := auth.RequirePrincipal(c.Context())

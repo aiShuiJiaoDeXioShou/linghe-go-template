@@ -1,0 +1,15 @@
+# <type>(<scope>): <subject>
+#
+# type: feat/fix/refactor/perf/test/docs/build/ci/chore
+# scope: module/api/service/repository/model/data/auth/http/config/migration/deploy/tool/docs
+# subject: 使用祈使句且不超过 50 字 简明说明本次提交做了什么
+#
+# 正文 可按需填写
+# - 说明修改原因和关键实现
+# - 说明影响范围 兼容性和迁移步骤
+# - 关联 Issue 或其他上下文
+#
+# 提交前检查
+# - [ ] go run ./tools/dev check
+# - [ ] 数据库变更已添加版本化迁移
+# - [ ] 新模块已在 internal/app/modules.go 显式装配

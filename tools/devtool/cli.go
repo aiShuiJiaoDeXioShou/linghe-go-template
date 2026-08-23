@@ -13,8 +13,13 @@ import (
 
 const usage = `用法:
   go run ./tools/dev check
+  go run ./tools/dev docs generate
+  go run ./tools/dev project init --module <module-path> --name <project-name> [--dry-run]
   go run ./tools/dev migration new <name> [--dry-run]
+  go run ./tools/dev migration check
   go run ./tools/dev module new <domain> [--realm app|admin|none] [--dry-run]
+  go run ./tools/dev release package --env stg|production [--sha <git-sha>] [--goarch amd64|arm64] [--output <archive>] [--dry-run]
+  go run ./tools/dev test integration
 `
 
 type command struct {
@@ -54,16 +59,46 @@ func Run(
 			return fmt.Errorf("check 不接受额外参数\n%s", usage)
 		}
 		return runner.check(ctx)
-	case "migration":
-		if len(args) < 2 || args[1] != "new" {
-			return fmt.Errorf("migration 仅支持 new 子命令\n%s", usage)
+	case "docs":
+		if len(args) != 2 || args[1] != "generate" {
+			return fmt.Errorf("docs 仅支持 generate 子命令\n%s", usage)
 		}
-		return runner.newMigration(args[2:])
+		return runner.generateAPIDocs(ctx)
+	case "project":
+		if len(args) < 2 || args[1] != "init" {
+			return fmt.Errorf("project 仅支持 init 子命令\n%s", usage)
+		}
+		return runner.initProject(ctx, args[2:])
+	case "migration":
+		if len(args) < 2 {
+			return fmt.Errorf("migration 必须指定 new 或 check 子命令\n%s", usage)
+		}
+		switch args[1] {
+		case "new":
+			return runner.newMigration(args[2:])
+		case "check":
+			if len(args) != 2 {
+				return fmt.Errorf("migration check 不接受额外参数")
+			}
+			return runner.checkMigrations()
+		default:
+			return fmt.Errorf("migration 仅支持 new 或 check 子命令\n%s", usage)
+		}
 	case "module":
 		if len(args) < 2 || args[1] != "new" {
 			return fmt.Errorf("module 仅支持 new 子命令\n%s", usage)
 		}
 		return runner.newModule(args[2:])
+	case "release":
+		if len(args) < 2 || args[1] != "package" {
+			return fmt.Errorf("release 仅支持 package 子命令\n%s", usage)
+		}
+		return runner.packageRelease(ctx, args[2:])
+	case "test":
+		if len(args) != 2 || args[1] != "integration" {
+			return fmt.Errorf("test 仅支持 integration 子命令\n%s", usage)
+		}
+		return runner.testIntegration(ctx)
 	default:
 		return fmt.Errorf("未知命令 %q\n%s", args[0], usage)
 	}

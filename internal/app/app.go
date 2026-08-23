@@ -67,6 +67,10 @@ func newHTTPServer(cfg config.Config, logger *slog.Logger, resources *data.Data)
 		IdleTimeout:     cfg.HTTP.IdleTimeout,
 		ShutdownTimeout: cfg.HTTP.ShutdownTimeout,
 	}, logger)
+	if cfg.App.Env != "production" {
+		// 在本地和预发布环境开放 API 文档供调试与同步
+		server.RegisterAPIDocs()
+	}
 
 	// 创建 App 和 Admin 相互隔离的认证门面
 	realms, err := auth.NewRealms(resources.Redis(), auth.Config{

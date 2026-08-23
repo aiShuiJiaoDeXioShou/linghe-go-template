@@ -53,8 +53,5 @@ jobs:
           docker compose -f deploy/docker-compose.stg.yaml config --quiet
           docker compose -f deploy/docker-compose.production.yaml config --quiet
 
-      - name: 执行测试
-        run: go test ./...
-
-      - name: 执行静态检查
-        run: go vet ./...
+      - name: 执行项目门禁
+        run: go run ./tools/dev check

@@ -38,7 +38,7 @@ services:
       POSTGRES_USER: go_template
       POSTGRES_PASSWORD: go_template_local
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - go_template_postgresql_local_data:/var/lib/postgresql/data
     healthcheck:
@@ -57,7 +57,7 @@ services:
       - --requirepass
       - go_template_local
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     volumes:
       - go_template_redis_local_data:/data
     healthcheck:

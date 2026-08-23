@@ -40,8 +40,23 @@ func TestDataResources(t *testing.T) {
 	if err := migration.Up(ctx, databaseURL, migrationsDirectory); err != nil {
 		t.Fatalf("migration.Up() error = %v", err)
 	}
-	if err := migration.Down(ctx, databaseURL, migrationsDirectory, 1); err != nil {
+	initialState, err := migration.Current(databaseURL, migrationsDirectory)
+	if err != nil {
+		t.Fatalf("initial migration.Current() error = %v", err)
+	}
+	if !initialState.Exists || initialState.Version == 0 || initialState.Dirty {
+		t.Fatalf("initial migration state = %+v, want clean positive version", initialState)
+	}
+	latestVersion := initialState.Version
+	if err := migration.Down(ctx, databaseURL, migrationsDirectory, latestVersion); err != nil {
 		t.Fatalf("migration.Down() error = %v", err)
+	}
+	emptyState, err := migration.Current(databaseURL, migrationsDirectory)
+	if err != nil {
+		t.Fatalf("empty migration.Current() error = %v", err)
+	}
+	if emptyState.Exists {
+		t.Fatalf("migration state after full down = %+v, want no version", emptyState)
 	}
 	if err := migration.Up(ctx, databaseURL, migrationsDirectory); err != nil {
 		t.Fatalf("second migration.Up() error = %v", err)
@@ -50,13 +65,13 @@ func TestDataResources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("migration.Current() error = %v", err)
 	}
-	if !state.Exists || state.Version != 1 || state.Dirty {
-		t.Fatalf("migration state = %+v, want clean version 1", state)
+	if !state.Exists || state.Version != latestVersion || state.Dirty {
+		t.Fatalf("migration state = %+v, want clean version %d", state, latestVersion)
 	}
 	t.Cleanup(func() {
 		cleanupContext, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cleanupCancel()
-		if err := migration.Down(cleanupContext, databaseURL, migrationsDirectory, 1); err != nil {
+		if err := migration.Down(cleanupContext, databaseURL, migrationsDirectory, latestVersion); err != nil {
 			t.Errorf("cleanup migration.Down() error = %v", err)
 		}
 	})

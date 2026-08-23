@@ -68,24 +68,18 @@ jobs:
           cache: true
 
       - name: 执行质量检查
-        run: |
-          go test ./...
-          go vet ./...
-          docker compose -f "deploy/docker-compose.${DEPLOY_ENVIRONMENT}.yaml" config --quiet
+        run: go run ./tools/dev check
 
       - name: 构建部署包
         run: |
           set -Eeuo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          install -d .deploy/configs .deploy/migrations
-          CGO_ENABLED=0 GOOS=linux GOARCH="${DEPLOY_GOARCH:-amd64}" \
-            go build -trimpath -ldflags="-s -w" -o .deploy/server .
-          cp configs/*.yaml .deploy/configs/
-          cp migrations/*.sql .deploy/migrations/
-          cp deploy/Dockerfile .deploy/Dockerfile
-          cp "deploy/docker-compose.${DEPLOY_ENVIRONMENT}.yaml" .deploy/docker-compose.yml
           archive="$GITHUB_WORKSPACE/go-template-${DEPLOY_ENVIRONMENT}-${DEPLOY_SHA}.tar.gz"
-          tar -C .deploy -czf "$archive" .
+          go run ./tools/dev release package \
+            --env "$DEPLOY_ENVIRONMENT" \
+            --sha "$DEPLOY_SHA" \
+            --goarch "${DEPLOY_GOARCH:-amd64}" \
+            --output "$archive"
 
       - name: 校验并配置 SSH 主机
         run: |

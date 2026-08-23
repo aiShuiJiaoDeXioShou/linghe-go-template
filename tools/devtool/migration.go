@@ -5,17 +5,24 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
+	"strings"
 )
 
 var (
 	migrationNamePattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
-	migrationFilePattern = regexp.MustCompile(`^(\d{6})_[a-z][a-z0-9_]*\.(up|down)\.sql$`)
+	migrationFilePattern = regexp.MustCompile(`^(\d{6})_([a-z][a-z0-9_]*)\.(up|down)\.sql$`)
 )
 
 type migrationOptions struct {
 	name   string
 	dryRun bool
+}
+
+type migrationSummary struct {
+	latest uint
+	count  int
 }
 
 func (c command) newMigration(args []string) error {
@@ -24,10 +31,11 @@ func (c command) newMigration(args []string) error {
 		return err
 	}
 	migrationsDirectory := filepath.Join(c.root, "migrations")
-	version, err := nextMigrationVersion(migrationsDirectory)
+	summary, err := validateMigrations(migrationsDirectory)
 	if err != nil {
 		return err
 	}
+	version := int(summary.latest) + 1
 	prefix := fmt.Sprintf("%06d_%s", version, options.name)
 	upPath := filepath.Join(migrationsDirectory, prefix+".up.sql")
 	downPath := filepath.Join(migrationsDirectory, prefix+".down.sql")
@@ -53,6 +61,15 @@ func (c command) newMigration(args []string) error {
 	return nil
 }
 
+func (c command) checkMigrations() error {
+	summary, err := validateMigrations(filepath.Join(c.root, "migrations"))
+	if err != nil {
+		return err
+	}
+	_, _ = fmt.Fprintf(c.stdout, "迁移检查通过 versions=%d latest=%06d\n", summary.count, summary.latest)
+	return nil
+}
+
 func parseMigrationOptions(args []string) (migrationOptions, error) {
 	options := migrationOptions{}
 	for _, argument := range args {
@@ -75,32 +92,68 @@ func parseMigrationOptions(args []string) (migrationOptions, error) {
 	return options, nil
 }
 
-func nextMigrationVersion(directory string) (int, error) {
+func validateMigrations(directory string) (migrationSummary, error) {
 	entries, err := os.ReadDir(directory)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return 1, nil
+			return migrationSummary{}, nil
 		}
-		return 0, fmt.Errorf("读取 migrations 目录: %w", err)
+		return migrationSummary{}, fmt.Errorf("读取 migrations 目录: %w", err)
 	}
-	maximum := 0
+	type migrationPair struct {
+		name       string
+		directions map[string]bool
+	}
+	pairs := make(map[uint]*migrationPair)
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
-		matches := migrationFilePattern.FindStringSubmatch(entry.Name())
-		if matches == nil {
+		if !strings.HasSuffix(entry.Name(), ".sql") {
 			continue
 		}
-		version, conversionErr := strconv.Atoi(matches[1])
-		if conversionErr != nil {
-			return 0, fmt.Errorf("解析迁移版本 %q: %w", entry.Name(), conversionErr)
+		matches := migrationFilePattern.FindStringSubmatch(entry.Name())
+		if matches == nil {
+			return migrationSummary{}, fmt.Errorf("迁移文件名不符合约定: %s", entry.Name())
 		}
-		if version > maximum {
-			maximum = version
+		versionNumber, conversionErr := strconv.ParseUint(matches[1], 10, 32)
+		if conversionErr != nil {
+			return migrationSummary{}, fmt.Errorf("解析迁移版本 %q: %w", entry.Name(), conversionErr)
+		}
+		version := uint(versionNumber)
+		if version == 0 {
+			return migrationSummary{}, fmt.Errorf("迁移版本必须从 000001 开始: %s", entry.Name())
+		}
+		pair := pairs[version]
+		if pair == nil {
+			pair = &migrationPair{name: matches[2], directions: make(map[string]bool)}
+			pairs[version] = pair
+		}
+		if pair.name != matches[2] {
+			return migrationSummary{}, fmt.Errorf("迁移版本 %06d 使用了不同名称 %q 和 %q", version, pair.name, matches[2])
+		}
+		direction := matches[3]
+		if pair.directions[direction] {
+			return migrationSummary{}, fmt.Errorf("迁移版本 %06d 存在重复的 %s 文件", version, direction)
+		}
+		pair.directions[direction] = true
+	}
+
+	versions := make([]int, 0, len(pairs))
+	for version := range pairs {
+		versions = append(versions, int(version))
+	}
+	sort.Ints(versions)
+	for _, version := range versions {
+		pair := pairs[uint(version)]
+		if !pair.directions["up"] || !pair.directions["down"] {
+			return migrationSummary{}, fmt.Errorf("迁移版本 %06d 必须同时包含 up 和 down 文件", version)
 		}
 	}
-	return maximum + 1, nil
+	if len(versions) == 0 {
+		return migrationSummary{}, nil
+	}
+	return migrationSummary{latest: uint(versions[len(versions)-1]), count: len(versions)}, nil
 }
 
 func writeExclusive(path string, content []byte) error {

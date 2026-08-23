@@ -4,7 +4,7 @@
 
 - 本仓库默认作为可直接使用的私有项目模板
 - 保持根目录 `main.go` 作为唯一进程入口 不移动到 `cmd` 目录
-- 固定使用 Fiber v3 GORM v2 PostgreSQL go-redis SCS v2 goredisstore 和 golang-migrate v4
+- 固定使用 Fiber v3 GORM v2 PostgreSQL go-redis SCS v2 goredisstore golang-migrate v4 和 Swag
 - 优先使用标准库和少量必要依赖
 - 不为尚未出现的业务预建目录 接口或抽象层
 
@@ -37,9 +37,16 @@
 ## 路由与开发自动化
 
 - Fiber 路由直接写在所属业务包的 `api.go`
-- 允许在 `tools` 中提供项目级模块初始化器 迁移初始化器和质量检查命令
-- 官方 golang-migrate CLI 通过 `go.mod` 的 `tool` 指令固定版本并使用 `go tool migrate` 执行
-- 新迁移通过 `go tool migrate create -ext sql -dir migrations -seq <snake_case_name>` 创建 禁止手工猜测下一个版本号
+- API 文档使用 `swaggo/swag` 从 Handler 注释生成 禁止由文档工具生成路由 DTO Service Repository 或数据库模型
+- 每个公开 HTTP 接口保留最小 Swag 注释 `@Summary` `@Tags` `@ID` `@Success` 和 `@Router` 有参数时声明 `@Param` 受保护接口声明 `@Security BearerAuth`
+- JSON 的 `@accept` 和 `@produce` 在 `main.go` 全局声明 `@Description` 只在 Summary 无法表达约束时使用 通用 `@Failure` 不在每个 Handler 重复声明
+- `@ID` 是 Apifox 同步接口的稳定标识 已发布接口禁止随意修改
+- 生成文档固定放在 `docs/swagger` 且禁止手工修改 修改路由 请求 响应或注释后执行 `go run ./tools/dev docs generate`
+- `/docs/index.html` 和 `/docs/doc.json` 只在 `local` 和 `stg` 注册 `production` 禁止暴露 API 文档
+- Apifox 使用 `stg` 环境的 `/docs/doc.json` 作为 Swagger URL 数据源
+- 项目级重复操作统一收敛到 `tools/dev` 包括门禁 文档生成 项目初始化 模块初始化 迁移校验 集成测试和发布打包
+- 新迁移通过 `go run ./tools/dev migration new <snake_case_name>` 创建 禁止手工猜测下一个版本号
+- 提交前通过 `go run ./tools/dev migration check` 校验迁移命名 版本唯一性和方向配对 版本号允许存在间隔
 - 初始化器只负责确定性的机械工作 包括创建用户明确选择的文件 更新 `internal/app/modules.go` 和执行格式化
 - 初始化器产物必须可编译 模块骨架需要在交付前补齐实际业务内容
 - 初始化器不得覆盖已有文件 目标已存在时必须明确失败或仅输出差异预览
@@ -95,12 +102,11 @@
 - 对外可调用的类型 函数和方法必须添加注释
 - 私有函数根据重要程度添加注释 非复杂业务不用添加注释
 - 注释应解释用途 约束或原因 避免简单复述代码
-- Go 工具要求的 `//go:build` `//go:generate` 和 `// Code generated ... DO NOT EDIT.` 可以保留标准英文格式
+- Go 工具要求的 `//go:build` `//go:generate` `// Code generated ... DO NOT EDIT.` 和 Swag 指令可以保留标准英文格式
 
 ## 质量要求
 
-- 修改 Go 文件后执行 `gofmt` 并在交付前执行 `go test ./...` `go vet ./...` `go build ./...`
-- 保持 `go.mod` 和 `go.sum` 与源码依赖一致
+- 修改 Go 文件后执行 `go fmt ./...` 并在交付前执行 `go run ./tools/dev check`
 - 持久层改动必须在 CI 的真实 PostgreSQL 和 Redis 服务上执行集成测试
 
 ## 构造不变量与空值处理
@@ -123,7 +129,7 @@
 
 ## 数据库迁移
 
-- 数据库迁移固定使用 `golang-migrate` v4 官方 CLI 和 PGX v5 驱动 禁止使用 GORM `AutoMigrate`
+- 数据库迁移固定使用 `golang-migrate` v4 和 PGX v5 驱动 禁止使用 GORM `AutoMigrate`
 - golang-migrate 只管理目标数据库中的结构和数据版本 不负责创建 PostgreSQL 服务 逻辑数据库 用户或权限
 - 迁移文件使用六位递增版本和 snake_case 名称 每个版本必须同时包含 `<version>_<name>.up.sql` 和 `<version>_<name>.down.sql`
 - Up 和 Down 必须准确互逆并默认使用 `BEGIN` `COMMIT` 保证 PostgreSQL 多语句原子执行
@@ -132,7 +138,7 @@
 - 数据库字段 表 索引 约束或数据语义变化必须在同一变更中同步迁移 SQL `internal/models` 和 Repository
 - 破坏性变更必须采用 expand migrate contract 分批发布并至少兼容上一个应用版本
 - CI 必须在真实 PostgreSQL 上通过 `up -> down -> up` 并确认版本不是 dirty
-- 部署必须先执行 `migrate up` 再启动新应用 迁移失败时保留旧应用且禁止自动 force
+- 发布包存在迁移时必须先执行 `migrate up` 再启动新应用 迁移失败时保留旧应用且禁止自动 force 没有迁移时允许直接发布
 - 应用回滚只恢复上一版应用 数据库禁止自动执行 down 生产修复默认追加向前迁移
 - `migrate down` 主要用于本地和测试 生产执行 down 或 force 前必须人工核对数据库真实状态和数据影响
 

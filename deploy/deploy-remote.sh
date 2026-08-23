@@ -14,6 +14,7 @@ compose_project="${compose_project//./-}"
 readonly compose_project
 temporary_release_dir=""
 previous_release=""
+has_migrations=false
 
 fail() {
     printf '部署失败：%s\n' "$*" >&2
@@ -151,6 +152,7 @@ if [[ ! -d "$release_dir" ]]; then
     [[ -x "${temporary_release_dir}/server" ]] || fail "部署包中缺少可执行文件"
     [[ -f "${temporary_release_dir}/Dockerfile" ]] || fail "部署包中缺少 Dockerfile"
     [[ -f "${temporary_release_dir}/docker-compose.yml" ]] || fail "部署包中缺少 Docker Compose 配置"
+    [[ -f "${temporary_release_dir}/release.json" ]] || fail "部署包中缺少发布清单"
     [[ -f "${temporary_release_dir}/configs/config.${environment_name}.yaml" ]] \
         || fail "部署包中缺少环境配置"
     mv "$temporary_release_dir" "$release_dir"
@@ -158,10 +160,13 @@ if [[ ! -d "$release_dir" ]]; then
 fi
 
 [[ -d "${release_dir}/migrations" ]] || fail "部署包中缺少 migrations 目录"
-compgen -G "${release_dir}/migrations/*.up.sql" >/dev/null \
-    || fail "部署包中缺少升级迁移文件"
-compgen -G "${release_dir}/migrations/*.down.sql" >/dev/null \
-    || fail "部署包中缺少回滚迁移文件"
+if compgen -G "${release_dir}/migrations/*.up.sql" >/dev/null; then
+    compgen -G "${release_dir}/migrations/*.down.sql" >/dev/null \
+        || fail "部署包中的迁移文件缺少 down 配对"
+    has_migrations=true
+elif compgen -G "${release_dir}/migrations/*.down.sql" >/dev/null; then
+    fail "部署包中的迁移文件缺少 up 配对"
+fi
 
 printf '%s\n' "$app_port" >"${release_dir}/${deploy_port_file}"
 cd "$release_dir"
@@ -175,11 +180,15 @@ if ! compose_build "$release_dir" "$release_sha"; then
 fi
 
 printf '部署：正在执行数据库升级\n'
-if ! compose_migrate "$release_dir" "$app_port" "$release_sha"; then
-    fail "数据库升级失败 旧版本继续运行"
+if [[ "$has_migrations" == true ]]; then
+    if ! compose_migrate "$release_dir" "$app_port" "$release_sha"; then
+        fail "数据库升级失败 旧版本继续运行"
+    fi
+    printf '部署：数据库升级成功 正在启动新版本容器\n'
+else
+    printf '部署：发布包不包含数据库迁移 跳过数据库升级\n'
 fi
 
-printf '部署：数据库升级成功 正在启动新版本容器\n'
 if ! compose_up "$release_dir" "$app_port" "$release_sha"; then
     docker compose --project-name "$compose_project" logs --no-color --tail 200 backend || true
     rollback_previous

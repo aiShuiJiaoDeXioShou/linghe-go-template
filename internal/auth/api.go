@@ -18,6 +18,14 @@ type resource struct {
 	realms *Realms
 }
 
+// logoutApp 注销当前 App 登录域会话
+//
+// @Summary 注销业务用户会话
+// @Tags 认证会话
+// @ID logoutBusinessUser
+// @Security BearerAuth
+// @Success 200 {object} httpx.Response
+// @Router /api/auth/logout [post]
 func (r resource) logoutApp(c fiber.Ctx) error {
 	// 注销当前 App 登录域会话
 	if err := r.realms.App.LogoutCurrent(c.Context()); err != nil {
@@ -26,6 +34,14 @@ func (r resource) logoutApp(c fiber.Ctx) error {
 	return httpx.OK(c, nil)
 }
 
+// logoutAdmin 注销当前 Admin 登录域会话
+//
+// @Summary 注销管理员会话
+// @Tags 认证会话
+// @ID logoutAdminUser
+// @Security BearerAuth
+// @Success 200 {object} httpx.Response
+// @Router /admin/auth/logout [post]
 func (r resource) logoutAdmin(c fiber.Ctx) error {
 	// 注销当前 Admin 登录域会话
 	if err := r.realms.Admin.LogoutCurrent(c.Context()); err != nil {

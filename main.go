@@ -14,6 +14,19 @@ import (
 	"go-template/internal/migration"
 )
 
+// main 启动 HTTP 服务或数据库迁移命令
+//
+// @title go-template API
+// @version 1.0
+// @description go-template 提供业务端和管理端 HTTP API
+// @BasePath /
+// @schemes http https
+// @accept json
+// @produce json
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description 使用 Bearer 加空格和会话令牌
 func main() {
 	// 运行应用并统一处理启动或退出错误
 	if err := run(); err != nil {

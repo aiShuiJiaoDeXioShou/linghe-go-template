@@ -170,14 +170,20 @@ Repository 必须继续传递收到的上下文，`Data.DB(ctx)` 会自动取得
 创建下一组迁移：
 
 ```bash
-go tool migrate create -ext sql -dir migrations -seq add_order_status
+go run ./tools/dev migration new add_order_status
 ```
 
-官方 CLI 按当前最大版本创建一组不覆盖已有文件的空迁移：
+项目工具会检查已有迁移并创建下一组不覆盖文件的事务模板：
 
 ```text
 migrations/000002_add_order_status.up.sql
 migrations/000002_add_order_status.down.sql
+```
+
+提交前校验迁移命名 版本唯一性和方向配对：
+
+```bash
+go run ./tools/dev migration check
 ```
 
 升级、查看版本和单步回滚：
@@ -189,14 +195,6 @@ go run . migrate down -steps 1 -config configs/config.local.yaml -path migration
 ```
 
 `up` 在已经处于最新版本时视为成功。`version` 输出当前版本和 dirty 状态。`down` 必须明确指定步数，主要用于本地开发和测试。
-
-需要直接使用带 PGX v5 驱动的官方 CLI 时传入 `pgx5://` 数据库 URL：
-
-```bash
-go run -tags pgx5 github.com/golang-migrate/migrate/v4/cmd/migrate -path migrations -database '<pgx5-url>' up
-go run -tags pgx5 github.com/golang-migrate/migrate/v4/cmd/migrate -path migrations -database '<pgx5-url>' version
-go run -tags pgx5 github.com/golang-migrate/migrate/v4/cmd/migrate -path migrations -database '<pgx5-url>' down 1
-```
 
 ### 迁移编写规则
 

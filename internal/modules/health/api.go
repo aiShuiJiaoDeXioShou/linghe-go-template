@@ -52,10 +52,24 @@ func RegisterHandlers(
 	router.Get("/api/v1/ping", h.ping)
 }
 
+// health 检查 HTTP 进程存活状态
+//
+// @Summary 检查进程存活状态
+// @Tags 系统探针
+// @ID getLiveness
+// @Success 200 {object} httpx.Response{data=healthResponse}
+// @Router /healthz [get]
 func (h handler) health(c fiber.Ctx) error {
 	return httpx.OK(c, healthResponse{Status: "ok"})
 }
 
+// ready 检查应用依赖就绪状态
+//
+// @Summary 检查应用就绪状态
+// @Tags 系统探针
+// @ID getReadiness
+// @Success 200 {object} httpx.Response{data=healthResponse}
+// @Router /readyz [get]
 func (h handler) ready(c fiber.Ctx) error {
 	// 限制依赖检查时间避免探针长时间阻塞
 	checkContext, cancel := context.WithTimeout(c.Context(), h.readinessLimit)
@@ -67,6 +81,13 @@ func (h handler) ready(c fiber.Ctx) error {
 	return httpx.OK(c, healthResponse{Status: "ok"})
 }
 
+// ping 检查业务数据库连接
+//
+// @Summary 检查业务数据库连接
+// @Tags 系统探针
+// @ID pingDatabase
+// @Success 200 {object} httpx.Response{data=pingResponse}
+// @Router /api/v1/ping [get]
 func (h handler) ping(c fiber.Ctx) error {
 	// 执行独立的 PostgreSQL 轻量查询
 	if err := h.databaseCheck(c.Context()); err != nil {

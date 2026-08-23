@@ -18,8 +18,8 @@ func TestDevtoolMigrationNew(t *testing.T) {
 	if err := os.MkdirAll(migrationsDirectory, 0o755); err != nil {
 		t.Fatalf("MkdirAll() error = %v", err)
 	}
-	writeTestFile(t, filepath.Join(migrationsDirectory, "000003_existing.up.sql"), "-- existing\n")
-	writeTestFile(t, filepath.Join(migrationsDirectory, "000003_existing.down.sql"), "-- existing\n")
+	writeTestFile(t, filepath.Join(migrationsDirectory, "000001_existing.up.sql"), "-- existing\n")
+	writeTestFile(t, filepath.Join(migrationsDirectory, "000001_existing.down.sql"), "-- existing\n")
 
 	var output bytes.Buffer
 	err := devtool.Run(context.Background(), root, []string{"migration", "new", "create_orders"}, &output, &output)
@@ -27,10 +27,31 @@ func TestDevtoolMigrationNew(t *testing.T) {
 		t.Fatalf("Run() error = %v", err)
 	}
 	for _, suffix := range []string{"up.sql", "down.sql"} {
-		path := filepath.Join(migrationsDirectory, "000004_create_orders."+suffix)
+		path := filepath.Join(migrationsDirectory, "000002_create_orders."+suffix)
 		if _, err := os.Stat(path); err != nil {
 			t.Fatalf("generated migration %s: %v", path, err)
 		}
+	}
+}
+
+// TestDevtoolMigrationCheck 验证迁移检查允许版本间隔但拒绝缺失配对
+func TestDevtoolMigrationCheck(t *testing.T) {
+	root := newDevtoolFixture(t)
+	migrationsDirectory := filepath.Join(root, "migrations")
+	writeTestFile(t, filepath.Join(migrationsDirectory, "000001_initial.up.sql"), "-- up\n")
+
+	var output bytes.Buffer
+	err := devtool.Run(context.Background(), root, []string{"migration", "check"}, &output, &output)
+	if err == nil || !strings.Contains(err.Error(), "同时包含 up 和 down") {
+		t.Fatalf("missing pair error = %v", err)
+	}
+
+	writeTestFile(t, filepath.Join(migrationsDirectory, "000001_initial.down.sql"), "-- down\n")
+	writeTestFile(t, filepath.Join(migrationsDirectory, "000003_gap.up.sql"), "-- up\n")
+	writeTestFile(t, filepath.Join(migrationsDirectory, "000003_gap.down.sql"), "-- down\n")
+	err = devtool.Run(context.Background(), root, []string{"migration", "check"}, &output, &output)
+	if err != nil {
+		t.Fatalf("migration gap error = %v", err)
 	}
 }
 
@@ -123,6 +144,100 @@ func TestDevtoolModuleDryRunAndExistingTarget(t *testing.T) {
 	}
 }
 
+// TestDevtoolProjectInitDryRun 验证项目初始化预览覆盖模块名和项目标识但不写入文件
+func TestDevtoolProjectInitDryRun(t *testing.T) {
+	root := newDevtoolFixture(t)
+	writeTestFile(t, filepath.Join(root, "configs", "config.local.yaml"), "app:\n  name: old-service\n  env: local\n")
+	writeTestFile(t, filepath.Join(root, "main.go"), "package main\n\nimport _ \"example.com/project/internal/config\"\n")
+	writeTestFile(t, filepath.Join(root, "docker-compose.yaml"), "name: old-service\nvolume: old_service_data\n")
+
+	var output bytes.Buffer
+	err := devtool.Run(context.Background(), root, []string{
+		"project", "init",
+		"--module", "example.com/order/service",
+		"--name", "order-service",
+		"--dry-run",
+	}, &output, &output)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	for _, expected := range []string{"example.com/project -> example.com/order/service", "old-service -> order-service", "update main.go", "update docker-compose.yaml"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Errorf("project dry-run missing %q\n%s", expected, output.String())
+		}
+	}
+	content, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if !strings.Contains(string(content), "module example.com/project") {
+		t.Fatalf("dry-run changed go.mod: %s", content)
+	}
+}
+
+// TestDevtoolProjectInit 验证项目初始化统一更新模块 应用和数据库标识
+func TestDevtoolProjectInit(t *testing.T) {
+	root := newDevtoolFixture(t)
+	writeTestFile(t, filepath.Join(root, "go.mod"), "module old-service\n\ngo 1.25\n")
+	writeTestFile(t, filepath.Join(root, "configs", "config.local.yaml"), "app:\n  name: old-service\n  env: local\n")
+	writeTestFile(t, filepath.Join(root, "configs", "config.stg.yaml"), "app:\n  name: old-service\n  env: stg\n")
+	writeTestFile(t, filepath.Join(root, "configs", "config.production.yaml"), "app:\n  name: old-service\n  env: production\n")
+	writeTestFile(t, filepath.Join(root, "internal", "sample", "sample.go"), "package sample\n")
+	writeTestFile(t, filepath.Join(root, "main.go"), "package main\n\nimport _ \"old-service/internal/sample\"\n\nfunc main() {}\n")
+	writeTestFile(t, filepath.Join(root, "README.md"), "old-service old_service\n")
+
+	var output bytes.Buffer
+	err := devtool.Run(context.Background(), root, []string{
+		"project", "init",
+		"--module", "example.com/order/service",
+		"--name", "order-service",
+	}, &output, &output)
+	if err != nil {
+		t.Fatalf("Run() error = %v\n%s", err, output.String())
+	}
+	for path, expected := range map[string][]string{
+		"go.mod":    {"module example.com/order/service"},
+		"main.go":   {`"example.com/order/service/internal/sample"`},
+		"README.md": {"order-service", "order_service"},
+	} {
+		content, readErr := os.ReadFile(filepath.Join(root, path))
+		if readErr != nil {
+			t.Fatalf("ReadFile(%s) error = %v", path, readErr)
+		}
+		for _, value := range expected {
+			if !strings.Contains(string(content), value) {
+				t.Errorf("%s missing %q\n%s", path, value, content)
+			}
+		}
+	}
+}
+
+// TestDevtoolReleaseDryRun 验证发布预览选择目标环境配置和稳定包名
+func TestDevtoolReleaseDryRun(t *testing.T) {
+	root := newDevtoolFixture(t)
+	writeTestFile(t, filepath.Join(root, "configs", "config.stg.yaml"), "app:\n  name: order-service\n  env: stg\n")
+
+	var output bytes.Buffer
+	sha := strings.Repeat("a", 40)
+	err := devtool.Run(context.Background(), root, []string{
+		"release", "package",
+		"--env", "stg",
+		"--sha", sha,
+		"--dry-run",
+	}, &output, &output)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	for _, expected := range []string{"order-service-stg-" + sha + ".tar.gz", "configs/config.stg.yaml"} {
+		if !strings.Contains(output.String(), expected) {
+			t.Errorf("release dry-run missing %q\n%s", expected, output.String())
+		}
+	}
+	if strings.Contains(output.String(), "config.production.yaml") {
+		t.Fatalf("release dry-run contains production config: %s", output.String())
+	}
+}
+
 // TestDevtoolRejectsInvalidInput 验证初始化器拒绝非法名称和登录域
 func TestDevtoolRejectsInvalidInput(t *testing.T) {
 	root := newDevtoolFixture(t)
@@ -133,6 +248,8 @@ func TestDevtoolRejectsInvalidInput(t *testing.T) {
 		{name: "migration name", args: []string{"migration", "new", "CreateOrders"}},
 		{name: "module name", args: []string{"module", "new", "order-item"}},
 		{name: "realm", args: []string{"module", "new", "order", "--realm", "root"}},
+		{name: "project module", args: []string{"project", "init", "--module", "invalid", "--name", "order"}},
+		{name: "release env", args: []string{"release", "package", "--env", "local", "--sha", strings.Repeat("a", 40)}},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {

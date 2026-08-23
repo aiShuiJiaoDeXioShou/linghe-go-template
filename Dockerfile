@@ -8,11 +8,12 @@ RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/server .
 
-FROM scratch
+FROM alpine:3.22
+
+RUN apk add --no-cache ca-certificates tzdata
 
 WORKDIR /app
 
-COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build /out/server /app/server
 COPY --from=build /src/configs /app/configs
 COPY --from=build /src/migrations /app/migrations

@@ -28,20 +28,28 @@ type keyRequest struct {
 }
 
 type upsertRequest struct {
-	Value       json.RawMessage `json:"value" validate:"required"`
+	Value       json.RawMessage `json:"value" swaggertype:"object" validate:"required"`
 	Description string          `json:"description" validate:"max=256"`
 	Public      bool            `json:"public"`
 }
 
 type itemResponse struct {
 	Key         string          `json:"key"`
-	Value       json.RawMessage `json:"value"`
+	Value       json.RawMessage `json:"value" swaggertype:"object"`
 	Description string          `json:"description"`
 	Public      bool            `json:"public"`
 	CreatedAt   time.Time       `json:"created_at"`
 	UpdatedAt   time.Time       `json:"updated_at"`
 }
 
+// getPublic 获取公开系统配置
+//
+// @Summary 获取公开系统配置
+// @Tags 系统配置
+// @ID getPublicConfig
+// @Param key path string true "配置键" minlength(1) maxlength(128)
+// @Success 200 {object} httpx.Response{data=itemResponse}
+// @Router /api/configs/{key} [get]
 func (r resource) getPublic(c fiber.Ctx) error {
 	key, err := bindKey(c)
 	if err != nil {
@@ -54,6 +62,15 @@ func (r resource) getPublic(c fiber.Ctx) error {
 	return httpx.OK(c, newItemResponse(item))
 }
 
+// get 获取管理端系统配置
+//
+// @Summary 获取管理端系统配置
+// @Tags 系统配置
+// @ID getAdminConfig
+// @Security BearerAuth
+// @Param key path string true "配置键" minlength(1) maxlength(128)
+// @Success 200 {object} httpx.Response{data=itemResponse}
+// @Router /admin/configs/{key} [get]
 func (r resource) get(c fiber.Ctx) error {
 	key, err := bindKey(c)
 	if err != nil {
@@ -66,6 +83,16 @@ func (r resource) get(c fiber.Ctx) error {
 	return httpx.OK(c, newItemResponse(item))
 }
 
+// upsert 新增或更新系统配置
+//
+// @Summary 新增或更新系统配置
+// @Tags 系统配置
+// @ID upsertAdminConfig
+// @Security BearerAuth
+// @Param key path string true "配置键" minlength(1) maxlength(128)
+// @Param request body upsertRequest true "系统配置内容"
+// @Success 200 {object} httpx.Response{data=itemResponse}
+// @Router /admin/configs/{key} [put]
 func (r resource) upsert(c fiber.Ctx) error {
 	key, err := bindKey(c)
 	if err != nil {

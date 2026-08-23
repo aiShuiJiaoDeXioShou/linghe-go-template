@@ -43,6 +43,14 @@ type userResponse struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// register 注册业务用户
+//
+// @Summary 注册业务用户
+// @Tags 业务用户
+// @ID registerBusinessUser
+// @Param request body registerRequest true "注册参数"
+// @Success 201 {object} httpx.Response{data=userResponse}
+// @Router /api/auth/register [post]
 func (r resource) register(c fiber.Ctx) error {
 	var request registerRequest
 	// 绑定并校验业务用户注册参数
@@ -60,6 +68,14 @@ func (r resource) register(c fiber.Ctx) error {
 	return httpx.Created(c, newUserResponse(createdUser))
 }
 
+// login 登录业务用户
+//
+// @Summary 登录业务用户
+// @Tags 业务用户
+// @ID loginBusinessUser
+// @Param request body loginRequest true "登录参数"
+// @Success 200 {object} httpx.Response{data=auth.Token}
+// @Router /api/auth/login [post]
 func (r resource) login(c fiber.Ctx) error {
 	var request loginRequest
 	// 绑定并校验业务用户登录参数
@@ -77,6 +93,14 @@ func (r resource) login(c fiber.Ctx) error {
 	return httpx.OK(c, token)
 }
 
+// me 获取当前业务用户
+//
+// @Summary 获取当前业务用户
+// @Tags 业务用户
+// @ID getCurrentBusinessUser
+// @Security BearerAuth
+// @Success 200 {object} httpx.Response{data=userResponse}
+// @Router /api/users/me [get]
 func (r resource) me(c fiber.Ctx) error {
 	// 从认证上下文读取服务端可信用户 ID
 	principal, err := auth.RequirePrincipal(c.Context())
