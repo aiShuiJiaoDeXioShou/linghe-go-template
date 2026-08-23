@@ -1,0 +1,124 @@
+name: 自动部署
+run-name: 部署 ${{ github.ref_name == 'main' && 'stg' || 'production' }} 环境 · ${{ github.sha }}
+
+on:
+  push:
+    branches:
+      - main
+      - rel
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref_name == 'main' && 'stg' || 'production' }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: 构建并部署 ${{ github.ref_name == 'main' && 'stg' || 'production' }} 环境
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment:
+      name: ${{ github.ref_name == 'main' && 'stg' || 'production' }}
+    env:
+      DEPLOY_ENVIRONMENT: ${{ github.ref_name == 'main' && 'stg' || 'production' }}
+      DEPLOY_SHA: ${{ github.sha }}
+      DEPLOY_GOARCH: ${{ vars.GOARCH }}
+      SSH_HOST: ${{ vars.SSH_HOST }}
+      SSH_USER: ${{ vars.SSH_USER }}
+      SSH_PORT: ${{ vars.SSH_PORT }}
+      SSH_HOST_FINGERPRINT: ${{ vars.SSH_HOST_FINGERPRINT }}
+      DEPLOY_DIR: ${{ vars.DEPLOY_DIR }}
+      APP_PORT: ${{ vars.APP_PORT }}
+      TEST_POSTGRES_URL: postgres://go_template:go_template_test@127.0.0.1:5432/go_template_test?sslmode=disable
+      TEST_REDIS_ADDRESS: 127.0.0.1:6379
+    services:
+      postgresql:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: go_template_test
+          POSTGRES_USER: go_template
+          POSTGRES_PASSWORD: go_template_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U go_template -d go_template_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: 检出当前提交
+        uses: actions/checkout@v7
+
+      - name: 配置 Go 工具链
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.x"
+          cache: true
+
+      - name: 执行质量检查
+        run: |
+          go test ./...
+          go vet ./...
+          docker compose -f "deploy/docker-compose.${DEPLOY_ENVIRONMENT}.yaml" config --quiet
+
+      - name: 构建部署包
+        run: |
+          set -Eeuo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          install -d .deploy/configs
+          CGO_ENABLED=0 GOOS=linux GOARCH="${DEPLOY_GOARCH:-amd64}" \
+            go build -trimpath -ldflags="-s -w" -o .deploy/server .
+          cp configs/*.yaml .deploy/configs/
+          cp deploy/Dockerfile .deploy/Dockerfile
+          cp "deploy/docker-compose.${DEPLOY_ENVIRONMENT}.yaml" .deploy/docker-compose.yml
+          archive="$GITHUB_WORKSPACE/go-template-${DEPLOY_ENVIRONMENT}-${DEPLOY_SHA}.tar.gz"
+          tar -C .deploy -czf "$archive" .
+
+      - name: 校验并配置 SSH 主机
+        run: |
+          set -Eeuo pipefail
+          test -n "$SSH_HOST"
+          test -n "$SSH_USER"
+          test -n "$SSH_PORT"
+          test -n "$SSH_HOST_FINGERPRINT"
+          test -n "$DEPLOY_DIR"
+          test -n "$APP_PORT"
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq sshpass
+          install -d -m 700 "$HOME/.ssh"
+          ssh-keyscan -T 10 -p "$SSH_PORT" -t ed25519 "$SSH_HOST" >"$RUNNER_TEMP/host-key"
+          actual_fingerprint="$(ssh-keygen -lf "$RUNNER_TEMP/host-key" -E sha256 | awk '{print $2}')"
+          test "$actual_fingerprint" = "$SSH_HOST_FINGERPRINT"
+          cat "$RUNNER_TEMP/host-key" >>"$HOME/.ssh/known_hosts"
+          chmod 600 "$HOME/.ssh/known_hosts"
+
+      - name: 上传并部署
+        env:
+          SSHPASS: ${{ secrets.SSH_PASSWORD }}
+        run: |
+          set -Eeuo pipefail
+          test -n "$SSHPASS"
+          archive="go-template-${DEPLOY_ENVIRONMENT}-${DEPLOY_SHA}.tar.gz"
+          remote_archive="/tmp/${archive}"
+          ssh_options=(-p "$SSH_PORT" -o BatchMode=no -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=4 -o LogLevel=ERROR)
+          scp_options=(-P "$SSH_PORT" -o BatchMode=no -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=30 -o ServerAliveCountMax=4 -o LogLevel=ERROR)
+          sshpass -e scp "${scp_options[@]}" "$archive" \
+            "${SSH_USER}@${SSH_HOST}:${remote_archive}"
+          printf -v remote_command 'bash -s -- %q %q %q %q %q' \
+            "$DEPLOY_ENVIRONMENT" "$DEPLOY_SHA" "$remote_archive" "$DEPLOY_DIR" "$APP_PORT"
+          sshpass -e ssh "${ssh_options[@]}" "${SSH_USER}@${SSH_HOST}" \
+            "$remote_command" <deploy/deploy-remote.sh

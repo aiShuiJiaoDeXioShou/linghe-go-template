@@ -1,0 +1,41 @@
+app:
+  name: go-template
+  env: local
+
+http:
+  host: 0.0.0.0
+  port: 3000
+  read_timeout: 5s
+  write_timeout: 10s
+  idle_timeout: 60s
+  shutdown_timeout: 10s
+  readiness_timeout: 2s
+
+postgresql:
+  url: postgres://go_template:go_template_local@postgresql:5432/go_template_local?sslmode=disable
+  max_open_connections: 10
+  max_idle_connections: 2
+  connection_max_lifetime: 1h
+  connection_max_idle_time: 30m
+  connect_timeout: 5s
+  slow_query_threshold: 200ms
+  log_level: warn
+
+redis:
+  address: redis:6379
+  username: ""
+  password: go_template_local
+  database: 0
+  pool_size: 10
+  min_idle_connections: 2
+  dial_timeout: 5s
+  read_timeout: 3s
+  write_timeout: 3s
+
+auth:
+  session_lifetime: 720h
+  idle_timeout: 168h
+  app:
+    key_prefix: "go-template:local:auth:app:"
+  admin:
+    key_prefix: "go-template:local:auth:admin:"

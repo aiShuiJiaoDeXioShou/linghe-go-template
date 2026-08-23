@@ -1,0 +1,60 @@
+name: 持续集成
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: 测试与静态检查
+    runs-on: ubuntu-latest
+    env:
+      TEST_POSTGRES_URL: postgres://go_template:go_template_test@127.0.0.1:5432/go_template_test?sslmode=disable
+      TEST_REDIS_ADDRESS: 127.0.0.1:6379
+    services:
+      postgresql:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: go_template_test
+          POSTGRES_USER: go_template
+          POSTGRES_PASSWORD: go_template_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U go_template -d go_template_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: 检出当前提交
+        uses: actions/checkout@v7
+
+      - name: 配置 Go 工具链
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.26.x"
+          cache: true
+
+      - name: 校验 Compose 配置
+        run: |
+          docker compose -f docker-compose.yaml config --quiet
+          docker compose -f deploy/docker-compose.stg.yaml config --quiet
+          docker compose -f deploy/docker-compose.production.yaml config --quiet
+
+      - name: 执行测试
+        run: go test ./...
+
+      - name: 执行静态检查
+        run: go vet ./...

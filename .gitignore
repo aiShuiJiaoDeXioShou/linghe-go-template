@@ -1,0 +1,11 @@
+# 构建产物
+/bin/
+/dist/
+*.exe
+coverage.out
+/.deploy/
+*.tar.gz
+
+# 编辑器配置
+.idea/
+.vscode/

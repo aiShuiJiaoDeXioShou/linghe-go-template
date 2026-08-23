@@ -1,0 +1,19 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: "go-template:stg-${APP_IMAGE_TAG:-local}"
+    restart: unless-stopped
+    command:
+      - -config
+      - /app/configs/config.stg.yaml
+    ports:
+      - "${APP_PORT:-3001}:3000"
+    networks:
+      - 1panel-network
+
+networks:
+  1panel-network:
+    external: true
+    name: 1panel-network

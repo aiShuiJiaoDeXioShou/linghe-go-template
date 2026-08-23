@@ -1,0 +1,7 @@
+BEGIN;
+
+DROP TABLE IF EXISTS system_configs;
+DROP TABLE IF EXISTS admin_users;
+DROP TABLE IF EXISTS users;
+
+COMMIT;

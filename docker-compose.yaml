@@ -1,0 +1,61 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command:
+      - -config
+      - /app/configs/config.local.yaml
+    depends_on:
+      postgresql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+
+  postgresql:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: go_template_local
+      POSTGRES_USER: go_template
+      POSTGRES_PASSWORD: go_template_local
+    ports:
+      - "5432:5432"
+    volumes:
+      - go_template_postgresql_local_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U go_template -d go_template_local
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --requirepass
+      - go_template_local
+    ports:
+      - "6379:6379"
+    volumes:
+      - go_template_redis_local_data:/data
+    healthcheck:
+      test:
+        - CMD
+        - redis-cli
+        - -a
+        - go_template_local
+        - ping
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  go_template_postgresql_local_data:
+  go_template_redis_local_data:
