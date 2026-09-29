@@ -1,0 +1,3 @@
+# shell 脚本必须在所有平台保持 LF，
+# 否则在 Git Bash / macOS 下执行会出现 \r 相关错误。
+*.sh text eol=lf

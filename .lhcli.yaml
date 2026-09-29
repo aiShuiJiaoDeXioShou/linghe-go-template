@@ -1,0 +1,4 @@
+# lhcli init 模板清单。
+# lhcli 读取本文件后，会用 sh 执行 rename 指定的脚本。
+kind: go
+rename: scripts/rename.sh

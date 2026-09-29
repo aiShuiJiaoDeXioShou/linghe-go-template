@@ -502,3 +502,20 @@ go run ./tools/dev project init \
 ```
 
 命令会更新模块导入、应用名、数据库标识、镜像名和部署包名，并执行依赖整理、格式化和完整门禁。项目目录、Git 远端以及各环境真实数据库凭据仍需人工确认。
+
+### 统一改名脚本
+
+模板提供 `scripts/rename.sh`，作为 lhcli 与手动调用的统一入口：
+
+```bash
+sh scripts/rename.sh \
+  --module github.com/example/order-service \
+  --name order-service
+
+sh scripts/rename.sh \
+  --module github.com/example/order-service \
+  --name order-service \
+  --dry-run
+```
+
+脚本只做文本替换（模块路径、应用名、下划线形式的数据库标识），不执行依赖整理与质量门禁，后续动作由调用方决定。Windows 下请使用 Git Bash 执行。
